@@ -13,6 +13,15 @@ module.exports = (() =>{
         return decryptedData;
       };
 
+      const encryptData = async (data, password) => {
+        const iv = crypto.randomBytes(16); // Génère un IV aléatoire
+        const key = crypto.pbkdf2Sync(password, iv, PBKDF2_ITERATIONS, 16, 'sha1'); // Dérive la clé
+        const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
+      
+        const encryptedData = Buffer.concat([iv, cipher.update(data), cipher.final()]);
+        return encryptedData;
+      }
+
       return {
         decryptData
       };
