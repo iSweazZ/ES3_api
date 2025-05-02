@@ -1,101 +1,79 @@
 const express = require('express');
 const multer = require('multer');
-const cors = require('cors'); // Importer le module cors
-const crypt = require('./utils/crypt'); // Assurez-vous que le chemin est correct
-const fs = require('fs'); // Importer le module fs pour écrire des fichiers
+const cors = require('cors');
 const http = require('http');
 const path = require('path');
+const { json, static: serveStatic } = express;
+
+const decrypt = require('./src/endpoints/Decrypt');
+const encrypt = require('./src/endpoints/Encrypt');
+const download = require('./src/endpoints/Download');
+const {init} = require('./src/utils/DataBase');
+
+// Configurations
+const CORS_OPTIONS = {};
+const UPLOAD_DIRECTORY = path.join(__dirname, 'assets/files');
 
 const app = express();
 const upload = multer();
 
-// Activer CORS pour toutes les routes
-app.use(cors());
-
-// Middleware pour parser les JSON
-app.use(express.json());
-app.use('/static/assets/images', express.static(path.join(__dirname, 'assets/images')));
-
-// Route POST /decrypt
-app.post('/decrypt', upload.single('file'), async (req, res) => {
-    const file = req.file;
-    const password = req.body.password;
-
-    if (!file || !password) {
-        return res.status(400).json({ error: 'File and password are required.' });
-    }
-
-    const decryptedData = await crypt.decryptData(file.buffer, password); // Utilisation de la fonction decryptData
-    if (!decryptedData) {
-        return res.status(500).json({ error: 'Failed to decrypt data.' });
-    }
-
-    res.json(decryptedData.toString('utf-8'));
-});
-
-// Route POST /encrypt
-app.post('/encrypt', async (req, res) => {
-    //console.log(req.body.password)
-    const { data, password } = req.body;
-
-    if (!data || !password) {
-        return res.status(400).json({ error: 'Data and password are required.' });
-    }
-    try {
-        const encryptedData = await crypt.encryptData(data, password);
-        const encryptedPath = './StoreFile4.es3';
-        fs.writeFileSync(encryptedPath, encryptedData);
-        res.json({ encryptedData: encryptedData.toString('utf-8') });
-    } catch (error) {
-        console.log(error)
-        res.status(500).json({ error: error.message });
-    }
-});
-
-const normalizePort = val => {
+// Fonctions utilitaires
+const parsePort = (val) => {
     const port = parseInt(val, 10);
+    return isNaN(port) ? val : (port >= 0 ? port : false);
+};
 
-    if (isNaN(port)) {
-        return val;
-    }
-    if (port >= 0) {
-        return port;
-    }
-
-    return false;
-}
-
-const errorHandler = error => {
+const handleServerError = (error) => {
     if (error.syscall !== 'listen') {
         throw error;
     }
+    const errors = {
+        EACCES: 'Permission denied',
+        EADDRINUSE: 'Port is already in use'
+    };
+    const message = errors[error.code] || 'Server error occurred';
+    console.error(message);
+    process.exit(1);
+};
 
-    switch (error.code) {
-        case 'EACCES':
-            process.exit(1);
-            break;
-        case 'EADDRINUSE':
-            process.exit(1);
-            break;
-        default:
-            throw error;
-    }
-}
+// Configuration de middlewares
+const setupMiddlewares = (app) => {
+    app.use(cors(CORS_OPTIONS));
+    app.use(json());
+    app.use('/static/assets/files', serveStatic(UPLOAD_DIRECTORY));
+};
 
+// Configuration des routes
+const setupRoutes = (app) => {
+    app.post('/decrypt', upload.single('file'), decrypt.execute);
+    app.post('/encrypt', encrypt.execute);
+    app.get('/download/:id', (req, res) => {
+        download.execute(req, res);
+    });
+
+};
+
+// Fonction principale pour démarrer le serveur
 const bootstrap = () => {
-    const port = normalizePort(process.env.PORT || '3000')
-    app.set('port', port)
+    const port = parsePort(process.env.PORT || '3000');
+    app.set('port', port);
 
-    const server = http.createServer(app)
-    server.on('error', errorHandler);
+    setupMiddlewares(app);
+    setupRoutes(app);
+
+    const server = http.createServer(app);
+
+    server.on('error', handleServerError);
     server.on('listening', () => {
         const address = server.address();
-        const bind = typeof address === 'string' ? 'pipe ' + address : 'port ' + port;
-        console.log('Listening on ' + bind);
-    })
+        const bind = typeof address === 'string' ? `pipe ${address}` : `port ${port}`;
+        console.log(`Listening on ${bind}`);
+        init();
+    });
 
-    server.setTimeout(1000 * 60 * 5)
-    server.listen(port)
-}
+    server.setTimeout(1000 * 60 * 5);
+    server.listen(port);
+};
 
+// Démarrer l'application
 bootstrap();
